@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 
 Simulación de Geometría Curva Emergente de Correlaciones Cuánticas
@@ -236,7 +235,7 @@ def plot_results(eta_values, kappa_values):
     
     plt.annotate(
         'Régimen Hiperbólico\n(Curvatura Negativa)',
-        xy=(-0.2, np.nanmin(kappa_values) * 3),
+        xy=(0.16, np.nanmin(kappa_values) * -3),
         ha='center',
         fontsize=12,
         color='darkorange'
@@ -244,7 +243,7 @@ def plot_results(eta_values, kappa_values):
     
     plt.annotate(
         'Régimen Esférico\n(Curvatura Positiva)',
-        xy=(2.0, np.nanmax(kappa_values) / 2),
+        xy=(1.25, np.nanmax(kappa_values) / (1/0.39)),
         ha='center',
         fontsize=12,
         color='darkgreen'
