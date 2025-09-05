@@ -1,0 +1,279 @@
+"""
+
+Simulation of Emergent Curved Geometry from Quantum Correlations
+
+Author: Sergio Martínez Sánchez
+Date: 03-09-2025
+
+Description:
+This script implements the numerical simulation of the 3-qubit model presented
+in the paper "Foundations of Emergent Geometry". It calculates how the curvature
+of an emergent discrete space depends on the asymmetry in the entanglement structure
+of the system's ground state.
+
+The workflow is as follows:
+1. Define a range for the asymmetry parameter eta (J'/J).
+2. For each value of eta:
+   a. Construct the Hamiltonian of the M=-1/2 subspace.
+   b. Find the ground state through exact diagonalization.
+   c. Calculate the bipartite mutual informations (I_ij).
+   d. Calculate the emergent distances (d_ij) according to the postulate.
+   e. Calculate the curvature (kappa) as the normalized angular deficit.
+3. Visualize the curvature as a function of eta, generating the main graph
+   of the research.
+"""
+
+import numpy as np
+import scipy.linalg as la
+import matplotlib.pyplot as plt
+import matplotlib.style as style
+
+#  GLOBAL MODEL PARAMETERS 
+# These parameters are based directly on the developed theory.
+
+# Length scale constant in the metric postulate.
+# We fix it to 1.0 without loss of generality, as it only scales the general
+# size of the emergent triangle, not its shape or curvature.
+ALPHA = 1.0
+
+# Exponent in the metric postulate d = alpha / I^k.
+# As discussed in the theory, we use k=0.5.
+K = 0.5
+
+# Global energy scale J. Fixed to 1.0, as it only scales the
+# energy eigenvalues, not the eigenstates.
+J_COUPLING = 1.0
+
+# Range and resolution of the asymmetry parameter eta sweep.
+ETA_MIN = 0.1
+ETA_MAX = 3.0
+ETA_STEPS = 400
+
+# Small constant to avoid divisions by zero or logarithms of zero.
+EPSILON = 1e-12
+
+#  AUXILIARY AND CALCULATION FUNCTIONS 
+
+def binary_entropy(p: float) -> float:
+    """
+    Calculates the binary entropy H_b(p) in a numerically stable way.
+    H_b(p) = -p*log2(p) - (1-p)*log2(1-p).
+
+    Args:
+        p (float): Probability, must be in the range [0, 1].
+
+    Returns:
+        float: The binary entropy value in bits.
+    """
+    if p < EPSILON or (1 - p) < EPSILON:
+        return 0.0
+    return -p * np.log2(p) - (1 - p) * np.log2(1 - p)
+
+def setup_hamiltonian(eta: float) -> np.ndarray:
+    """
+    Constructs the 3x3 Hamiltonian matrix for the M=-1/2 subspace.
+    The matrix is derived directly from the theory (Appendix A).
+
+    Args:
+        eta (float): Asymmetry parameter J'/J.
+
+    Returns:
+        np.ndarray: The 3x3 Hamiltonian matrix.
+    """
+    H = np.array([
+        [1 - 2*eta, 2,       2*eta    ],
+        [2,         -1,      2        ],
+        [2*eta,     2,       -1 - 2*eta]
+    ])
+    return J_COUPLING * H
+
+def find_ground_state(H: np.ndarray) -> np.ndarray:
+    """
+    Diagonalizes the Hamiltonian and returns the ground state.
+    Uses scipy.linalg.eigh, which is efficient for Hermitian matrices
+    and returns sorted eigenvalues.
+
+    Args:
+        H (np.ndarray): The Hamiltonian matrix.
+
+    Returns:
+        np.ndarray: The normalized ground state vector (c1, c2, c3).
+    """
+    eigenvalues, eigenvectors = la.eigh(H)
+    # The first eigenvector (column 0) corresponds to the lowest eigenvalue.
+    ground_state_vector = eigenvectors[:, 0]
+    return ground_state_vector
+
+def calculate_observables(ground_state_vector: np.ndarray) -> dict:
+    """
+    Calculates all physical quantities derived from the ground state.
+    Follows the derivations from Appendix B of the theory.
+
+    Args:
+        ground_state_vector (np.ndarray): Vector (c1, c2, c3).
+
+    Returns:
+        dict: A dictionary containing mutual informations, distances and curvature.
+    """
+    c1, c2, c3 = ground_state_vector
+    
+    # 1. Calculate the probabilities |c_i|^2
+    p1 = np.abs(c1)**2
+    p2 = np.abs(c2)**2
+    p3 = np.abs(c3)**2
+    
+    # 2. Calculate the Mutual Informations using binary entropy
+    # I(2:3) ~ |c1|^2, I(3:1) ~ |c2|^2, I(1:2) ~ |c3|^2
+    I_23 = binary_entropy(p1)
+    I_31 = binary_entropy(p2)
+    I_12 = binary_entropy(p3)
+    
+    # 3. Calculate the emergent distances according to the postulate
+    # d = alpha / I^k. Handle the case I=0 to avoid division by zero.
+    d_12 = ALPHA / (I_12**K + EPSILON)
+    d_23 = ALPHA / (I_23**K + EPSILON)
+    d_31 = ALPHA / (I_31**K + EPSILON)
+    
+    # 4. Calculate the curvature from the angular deficit
+    # Use the side lengths a=d23, b=d31, c=d12
+    a, b, c = d_23, d_31, d_12
+    
+    # Check the triangle inequality. If not satisfied, the curvature is not
+    # well-defined in the Euclidean sense.
+    if not (a + b > c and a + c > b and b + c > a):
+        # This is a physically interesting result: the space "breaks down".
+        # We assign NaN (Not a Number) to exclude it from the main graph.
+        kappa = np.nan
+    else:
+        try:
+            # Law of cosines to find the angles
+            cos_alpha = (b**2 + c**2 - a**2) / (2 * b * c)
+            cos_beta = (a**2 + c**2 - b**2) / (2 * a * c)
+            cos_gamma = (a**2 + b**2 - c**2) / (2 * a * b)
+            
+            # Clip for numerical stability of arccos
+            angle_alpha = np.arccos(np.clip(cos_alpha, -1, 1))
+            angle_beta = np.arccos(np.clip(cos_beta, -1, 1))
+            angle_gamma = np.arccos(np.clip(cos_gamma, -1, 1))
+            
+            angle_sum = angle_alpha + angle_beta + angle_gamma
+            
+            # Heron's formula for the triangle area
+            s = (a + b + c) / 2
+            area = np.sqrt(s * (s - a) * (s - b) * (s - c))
+            
+            # Angular deficit normalized by the area
+            kappa = (angle_sum - np.pi) / (area + EPSILON)
+        except (ValueError, ZeroDivisionError):
+            kappa = np.nan
+
+    return {
+        "mutual_info": (I_12, I_23, I_31),
+        "distances": (d_12, d_23, d_31),
+        "curvature": kappa
+    }
+
+#  MAIN SIMULATION LOOP 
+
+def run_simulation():
+    """
+    Executes the complete sweep over the eta parameter and collects the results.
+    """
+    print("Starting emergent geometry model simulation...")
+    
+    eta_values = np.linspace(ETA_MIN, ETA_MAX, ETA_STEPS)
+    kappa_values = []
+    
+    for i, eta in enumerate(eta_values):
+        # Print progress
+        if (i + 1) % (ETA_STEPS // 10) == 0:
+            print(f"Progress: {100 * (i + 1) / ETA_STEPS:.0f}%")
+
+        # Calculation sequence for each eta
+        H = setup_hamiltonian(eta)
+        gs_vector = find_ground_state(H)
+        observables = calculate_observables(gs_vector)
+        
+        kappa_values.append(observables["curvature"])
+        
+    print("Simulation completed.")
+    return eta_values, np.array(kappa_values)
+
+#  RESULTS VISUALIZATION 
+
+def plot_results(eta_values, kappa_values):
+    """
+    Generates the main graph: Curvature vs. Entanglement Asymmetry.
+    """
+    print("Generating results plot...")
+
+    # Graph style for professional appearance
+    style.use('seaborn-v0_8-whitegrid')
+    plt.figure(figsize=(12, 8))
+    
+    # Plot the main data
+    print("Min kappa:", np.nanmin(kappa_values))
+    print("Max kappa:", np.nanmax(kappa_values))
+
+    plt.plot(eta_values, kappa_values, label='Emergent Curvature $\\kappa$', color='darkblue', linewidth=2.5)
+    
+    # Important reference lines
+    # Flat (Euclidean) geometry
+    plt.axhline(0, color='black', linestyle='--', linewidth=1.2, label='Flat Space ($\\kappa=0$)')
+    # Maximum symmetry point
+    plt.axvline(1.0, color='red', linestyle=':', linewidth=1.5, label='Symmetric Point ($\\eta=1$)')
+    
+    # Annotations for better interpretation
+    plt.annotate(
+        'Flat Geometry', 
+        xy=(1.0, 0), 
+        xytext=(1.2, 0.5),
+        arrowprops=dict(facecolor='black', shrink=0.05, width=1.5, headwidth=8),
+        fontsize=12,
+        bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", lw=1, alpha=0.8)
+    )
+    
+    plt.annotate(
+        'Hyperbolic Regime\n(Negative Curvature)',
+        xy=(0.16, np.nanmin(kappa_values) * -3),
+        ha='center',
+        fontsize=12,
+        color='darkorange'
+    )
+    
+    plt.annotate(
+        'Spherical Regime\n(Positive Curvature)',
+        xy=(1.25, np.nanmax(kappa_values) / (1/0.39)),
+        ha='center',
+        fontsize=12,
+        color='darkgreen'
+    )
+    
+    # Titles and labels with LaTeX format for mathematical rigor
+    plt.title('Phase Space of Emergent Geometries', fontsize=18, fontweight='bold')
+    plt.xlabel(r"Entanglement Asymmetry Parameter, $\eta = J'/J$", fontsize=14)
+    plt.ylabel(r'Emergent Discrete Curvature, $\kappa$', fontsize=14)
+
+    # Axis limits and scale
+    plt.xlim(ETA_MIN, ETA_MAX)
+    # Adjust y-limit for better visualization
+    max_abs_kappa = np.nanmax(np.abs(kappa_values))
+    plt.ylim(-max_abs_kappa*1.1, max_abs_kappa*1.1)
+    
+    # Add legend and improve appearance
+    plt.legend(fontsize=12)
+    plt.grid(True, which='both', linestyle='-', linewidth=0.5)
+    #plt.tight_layout()
+    
+    # Save figure in high resolution
+    output_filename = 'emergent_curvature_vs_eta.png'
+    plt.savefig(output_filename, dpi=300)
+    print(f"Graph saved as '{output_filename}'")
+    
+    # Show the figure
+    plt.show()
+
+#  SCRIPT ENTRY POINT 
+if __name__ == '__main__':
+    eta_data, kappa_data = run_simulation()
+    plot_results(eta_data, kappa_data)
